@@ -16,12 +16,20 @@ export default async function handler(req, res) {
 
   // Load your private key from environment variables
   const privateKey = process.env.SINGPASS_PRIVATE_KEY;
+  const singpassTokenUrl = process.env.SINGPASS_TOKEN_URL;
+  const tokenAud = process.env.SINGPASS_AUDIENCE || singpassTokenUrl;
+
+  if (!privateKey || !singpassTokenUrl) {
+    return res.status(500).json({
+      error: 'Missing required environment variables: SINGPASS_PRIVATE_KEY or SINGPASS_TOKEN_URL'
+    });
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: client_id,
     sub: client_id,
-    aud: 'https://stg-id.singpass.gov.sg/oauth2/token',
+    aud: tokenAud,
     iat: now,
     exp: now + 300,
     jti: Math.random().toString(36).substring(2),
@@ -38,7 +46,7 @@ export default async function handler(req, res) {
   params.append('client_assertion', clientAssertion);
 
   try {
-    const response = await fetch('https://stg-id.singpass.gov.sg/oauth2/token', {
+    const response = await fetch(singpassTokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -47,6 +55,10 @@ export default async function handler(req, res) {
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    res.status(500).json({
+      error: 'Token exchange failed',
+      details: error.message,
+      response: error.response?.data
+    });
   }
 }

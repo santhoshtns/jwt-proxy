@@ -4,7 +4,6 @@
     "main": "api/token.js",
     "type": "module",
     "dependencies": {
-      "jsonwebtoken": "^9.0.0"
+        "jsonwebtoken": "^9.0.0"
     }
-  }
-  
+}
