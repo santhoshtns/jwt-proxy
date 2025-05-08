@@ -19,24 +19,33 @@ function generatePKCE() {
 }
 
 export default async function handler(req, res) {
-  console.log(`[Request] Method: ${req.method}, URL: ${req.url}, Payload:`, req.body);
+  console.log(`[Request] Method: ${req.method}, URL: ${req.url}`);
 
+  // === GET /api/token?generate=pkce ===
   if (req.method === 'GET') {
-    // ✅ Support GET /api/token?generate=pkce to return challenge
+    console.log(`[GET] Query parameters:`, req.query);
     const { generate } = req.query;
+
     if (generate === 'pkce') {
       const { codeVerifier, codeChallenge } = generatePKCE();
-      console.log(`[PKCE] Generated code_verifier: ${codeVerifier}, code_challenge: ${codeChallenge}`);
-      return res.status(200).json({
+      console.log(`[PKCE] Generated code_verifier: ${codeVerifier}`);
+      console.log(`[PKCE] Generated code_challenge: ${codeChallenge}`);
+      
+      const responsePayload = {
         code_verifier: codeVerifier,
         code_challenge: codeChallenge,
         code_challenge_method: 'S256'
-      });
+      };
+
+      console.log(`[GET] Response payload:`, responsePayload);
+      return res.status(200).json(responsePayload);
     }
+
     console.warn(`[GET] Invalid usage with query:`, req.query);
     return res.status(400).json({ error: 'Invalid GET usage' });
   }
 
+  // === POST /api/token ===
   if (req.method !== 'POST') {
     console.warn(`[POST] Method not allowed: ${req.method}`);
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -44,10 +53,18 @@ export default async function handler(req, res) {
 
   const { client_id, code, redirect_uri, grant_type, code_verifier } = req.body;
 
-  // Validate input
+  // Required field validation
   if (!client_id || !code || !redirect_uri || !grant_type) {
     console.error(`[Validation] Missing required parameters:`, req.body);
     return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  // Specific validation for PKCE code_verifier
+  if (!code_verifier || code_verifier === 'undefined') {
+    console.error(`[Validation] Invalid or missing code_verifier:`, code_verifier);
+    return res.status(400).json({
+      error: 'Missing or invalid code_verifier — must be generated during PKCE step and passed here.'
+    });
   }
 
   const singpassTokenUrl = process.env.SINGPASS_TOKEN_URL;
@@ -56,6 +73,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Missing SINGPASS_TOKEN_URL' });
   }
 
+  // Build token exchange parameters
   const params = new URLSearchParams();
   params.append('grant_type', grant_type);
   params.append('code', code);
@@ -64,7 +82,7 @@ export default async function handler(req, res) {
   params.append('code_verifier', code_verifier);
 
   console.log(`[POST] Sending request to Singpass Token URL: ${singpassTokenUrl}`);
-  console.log(`[POST] Request payload:`, params.toString());
+  console.log(`[POST] Request payload:`, Object.fromEntries(params));
 
   try {
     const tokenResponse = await fetch(singpassTokenUrl, {
@@ -90,15 +108,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Missing id_token in response', raw: tokenData });
     }
 
-    // Decrypt ID token (if encrypted)
-    const encKeyPem = process.env.SINGPASS_ENC_KEY_PEM || fs.readFileSync(path.join(process.cwd(), 'keys/enc-key.pem'), 'utf8');
+    // Decrypt the JWE (id_token)
+    const encKeyPem = process.env.SINGPASS_ENC_KEY_PEM
+      || fs.readFileSync(path.join(process.cwd(), 'keys/enc-key.pem'), 'utf8');
     const encKey = await importPKCS8(encKeyPem, 'ECDH-ES+A256KW');
 
     const { plaintext: decryptedJWT } = await jwtDecrypt(id_token, encKey);
     const decryptedToken = decryptedJWT.toString();
     console.log(`[Decryption] Decrypted ID token:`, decryptedToken);
 
-    // Verify ID token signature
+    // Verify the JWT signature (id_token)
     const jwksPath = path.join(process.cwd(), 'keys/jwks.json');
     const jwks = JSON.parse(fs.readFileSync(jwksPath, 'utf8'));
     const JWKS = createLocalJWKSet(jwks);

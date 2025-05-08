@@ -10,6 +10,8 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
+// Add both GET and POST handlers
+app.get('/api/token', (req, res) => tokenHandler(req, res));
 app.post('/api/token', (req, res) => tokenHandler(req, res));
 
 const PORT = process.env.PORT || 3000;
