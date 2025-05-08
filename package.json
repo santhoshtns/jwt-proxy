@@ -1,9 +1,28 @@
 {
-    "name": "jwt-proxy",
-    "version": "1.0.0",
-    "main": "api/token.js",
-    "type": "module",
-    "dependencies": {
-        "jsonwebtoken": "^9.0.0"
-    }
+  "name": "jwt-proxy",
+  "version": "1.0.0",
+  "main": "api/token.js",
+  "type": "module",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jose": "^6.0.11",
+    "jsonwebtoken": "^9.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/santhoshtns/jwt-proxy.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/santhoshtns/jwt-proxy/issues"
+  },
+  "homepage": "https://github.com/santhoshtns/jwt-proxy#readme",
+  "description": ""
 }

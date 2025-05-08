@@ -1,10 +1,38 @@
 // api/token.js
 
+import { randomBytes, createHash } from 'crypto';
 import { jwtDecrypt, jwtVerify, importPKCS8, createLocalJWKSet } from 'jose';
 import fs from 'fs';
 import path from 'path';
 
+function generatePKCE() {
+  const codeVerifier = randomBytes(32).toString('hex');
+  const codeChallenge = createHash('sha256')
+    .update(codeVerifier)
+    .digest()
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  return { codeVerifier, codeChallenge };
+}
+
 export default async function handler(req, res) {
+  if (req.method === 'GET') {
+    // ✅ Support GET /api/token?generate=pkce to return challenge
+    const { generate } = req.query;
+    if (generate === 'pkce') {
+      const { codeVerifier, codeChallenge } = generatePKCE();
+      return res.status(200).json({
+        code_verifier: codeVerifier,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256'
+      });
+    }
+    return res.status(400).json({ error: 'Invalid GET usage' });
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -18,7 +46,7 @@ export default async function handler(req, res) {
 
   const singpassTokenUrl = process.env.SINGPASS_TOKEN_URL;
   if (!singpassTokenUrl) {
-    return res.status(500).json({ error: 'Missing SINGPASS_TOKEN_URL env var' });
+    return res.status(500).json({ error: 'Missing SINGPASS_TOKEN_URL' });
   }
 
   const params = new URLSearchParams();
@@ -48,17 +76,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Missing id_token in response', raw: tokenData });
     }
 
-    // 🔐 Decrypt the ID token (if it's JWE)
+    // Decrypt ID token (if encrypted)
     const encKeyPem = process.env.SINGPASS_ENC_KEY_PEM || fs.readFileSync(path.join(process.cwd(), 'keys/enc-key.pem'), 'utf8');
     const encKey = await importPKCS8(encKeyPem, 'ECDH-ES+A256KW');
 
-    const { plaintext: decryptedJWT } = await jwtDecrypt(id_token, encKey, {
-      contentEncryptionAlgorithms: ['A256GCM']
-    });
-
+    const { plaintext: decryptedJWT } = await jwtDecrypt(id_token, encKey);
     const decryptedToken = decryptedJWT.toString();
 
-    // ✅ Verify the signed JWT (you signed it with sig_key, registered in JWKS)
+    // Verify ID token signature
     const jwksPath = path.join(process.cwd(), 'keys/jwks.json');
     const jwks = JSON.parse(fs.readFileSync(jwksPath, 'utf8'));
     const JWKS = createLocalJWKSet(jwks);
@@ -69,7 +94,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       access_token,
-      id_token: verifiedClaims, // Only return the claims
+      id_token: verifiedClaims,
       header: protectedHeader
     });
 
