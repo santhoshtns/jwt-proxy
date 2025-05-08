@@ -19,33 +19,40 @@ function generatePKCE() {
 }
 
 export default async function handler(req, res) {
+  console.log(`[Request] Method: ${req.method}, URL: ${req.url}, Payload:`, req.body);
+
   if (req.method === 'GET') {
     // ✅ Support GET /api/token?generate=pkce to return challenge
     const { generate } = req.query;
     if (generate === 'pkce') {
       const { codeVerifier, codeChallenge } = generatePKCE();
+      console.log(`[PKCE] Generated code_verifier: ${codeVerifier}, code_challenge: ${codeChallenge}`);
       return res.status(200).json({
         code_verifier: codeVerifier,
         code_challenge: codeChallenge,
         code_challenge_method: 'S256'
       });
     }
+    console.warn(`[GET] Invalid usage with query:`, req.query);
     return res.status(400).json({ error: 'Invalid GET usage' });
   }
 
   if (req.method !== 'POST') {
+    console.warn(`[POST] Method not allowed: ${req.method}`);
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const { client_id, code, redirect_uri, grant_type, code_verifier } = req.body;
 
   // Validate input
-  if (!client_id || !code || !redirect_uri || !grant_type || !code_verifier) {
+  if (!client_id || !code || !redirect_uri || !grant_type) {
+    console.error(`[Validation] Missing required parameters:`, req.body);
     return res.status(400).json({ error: 'Missing required parameters' });
   }
 
   const singpassTokenUrl = process.env.SINGPASS_TOKEN_URL;
   if (!singpassTokenUrl) {
+    console.error(`[Config] Missing SINGPASS_TOKEN_URL`);
     return res.status(500).json({ error: 'Missing SINGPASS_TOKEN_URL' });
   }
 
@@ -56,6 +63,9 @@ export default async function handler(req, res) {
   params.append('client_id', client_id);
   params.append('code_verifier', code_verifier);
 
+  console.log(`[POST] Sending request to Singpass Token URL: ${singpassTokenUrl}`);
+  console.log(`[POST] Request payload:`, params.toString());
+
   try {
     const tokenResponse = await fetch(singpassTokenUrl, {
       method: 'POST',
@@ -64,15 +74,19 @@ export default async function handler(req, res) {
     });
 
     const tokenText = await tokenResponse.text();
+    console.log(`[Response] Raw token response:`, tokenText);
+
     let tokenData;
     try {
       tokenData = JSON.parse(tokenText);
     } catch {
+      console.error(`[Response] Invalid JSON from Singpass:`, tokenText);
       return res.status(500).json({ error: 'Invalid JSON from Singpass', raw: tokenText });
     }
 
     const { id_token, access_token } = tokenData;
     if (!id_token) {
+      console.error(`[Response] Missing id_token in response:`, tokenData);
       return res.status(500).json({ error: 'Missing id_token in response', raw: tokenData });
     }
 
@@ -82,6 +96,7 @@ export default async function handler(req, res) {
 
     const { plaintext: decryptedJWT } = await jwtDecrypt(id_token, encKey);
     const decryptedToken = decryptedJWT.toString();
+    console.log(`[Decryption] Decrypted ID token:`, decryptedToken);
 
     // Verify ID token signature
     const jwksPath = path.join(process.cwd(), 'keys/jwks.json');
@@ -92,6 +107,9 @@ export default async function handler(req, res) {
       audience: client_id
     });
 
+    console.log(`[Verification] Verified claims:`, verifiedClaims);
+    console.log(`[Verification] Protected header:`, protectedHeader);
+
     return res.status(200).json({
       access_token,
       id_token: verifiedClaims,
@@ -99,7 +117,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error(`[Error] Token exchange or verification failed:`, err);
     return res.status(500).json({
       error: 'Token exchange or verification failed',
       details: err.message
